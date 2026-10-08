@@ -339,6 +339,7 @@ static float minic_arg_float(minic_val_t *a, int c, int i) {
 #define X(kind, n, sig, e) MN_##kind(n, e)
 MINIC_MATH_API
 #undef X
+#include "minic_native_extra.h"
 
 // All array types share the buffer/length/capacity layout
 static void minic_register_array_struct(const char *name, int size, minic_type_t buffer_deref) {
@@ -348,7 +349,7 @@ static void minic_register_array_struct(const char *name, int size, minic_type_t
 	minic_struct_field("capacity", (int)offsetof(u8_array_t, capacity), MINIC_T_INT, MINIC_T_INT, NULL);
 }
 
-#define MINIC_API_MAX_SIGS 1024
+#define MINIC_API_MAX_SIGS 2048
 
 static const char *minic_api_sig_names[MINIC_API_MAX_SIGS];
 static const char *minic_api_sig_hints[MINIC_API_MAX_SIGS];
@@ -399,6 +400,7 @@ static const char *minic_api_sig_hint(const char *name) {
 
 #define MINIC_ARG_i(k) minic_arg_i(a, n, k)
 #define MINIC_ARG_f(k) minic_arg_f(a, n, k)
+#define MINIC_ARG_d(k) (k < n ? minic_val_to_d(a[k]) : 0.0)
 #define MINIC_ARG_p(k) minic_arg_p(a, n, k)
 #define MINIC_ARG_b(k) minic_arg_i(a, n, k)
 #define MINIC_ARG_c(k) minic_arg_i(a, n, k)
@@ -850,8 +852,8 @@ void minic_register_builtins() {
 	MINIC_I(ddirty);
 	MINIC_I(pdirty);
 	MINIC_O(material, slot_material_t);
-	MINIC_P(layer);
-	MINIC_P(brush);
+	MINIC_O(layer, slot_layer_t);
+	MINIC_O(brush, slot_brush_t);
 	MINIC_I(tool);
 	MINIC_F(brush_radius);
 	MINIC_F(brush_opacity);
@@ -885,6 +887,9 @@ void minic_register_builtins() {
 	MINIC_END();
 
 	// iron_math wrappers
+#include "minic_struct_extra.h"
+#include "minic_enum_extra.h"
+
 #define X(kind, n, sig, e)             \
 	minic_register_native(#n, mn_##n); \
 	minic_api_sig_add(#n, sig);
@@ -892,6 +897,7 @@ void minic_register_builtins() {
 #undef X
 
 	// iron_input globals
+#include "minic_native_register.h"
 	minic_register_global("mouse_x", &mouse_x, MINIC_T_FLOAT);
 	minic_register_global("mouse_y", &mouse_y, MINIC_T_FLOAT);
 

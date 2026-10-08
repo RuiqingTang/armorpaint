@@ -1,0 +1,1 @@
+"""ArmorPaint MCP integration."""

@@ -8,6 +8,20 @@
 #include "iron_ui.h"
 #include "types.h"
 
+bool mcp_bridge_enabled(void);
+void mcp_bridge_start(void);
+void mcp_bridge_stop(void);
+void mcp_bridge_init(void *data);
+slot_layer_t *mcp_get_layer(i32 id);
+slot_brush_t *mcp_get_brush(i32 id);
+asset_t *mcp_get_asset(i32 index);
+bool mcp_set_setting(char *scope, char *name, f64 value);
+void mcp_task_begin(void);
+void mcp_task_end(char *error);
+void mcp_create_fill_layer(i32 uv_type, i32 position);
+void mcp_export_textures(char *path, export_preset_t *preset, i32 bits, i32 format);
+bool mcp_can_delete_layer(slot_layer_t *layer);
+
 f32                   ui_MENUBAR_H(ui_t *ui);
 f32                   ui_nodes_INPUT_Y(ui_node_canvas_t *canvas, ui_node_t *node, i32 pos);
 ui_t                 *ui_create(ui_options_t *ops);

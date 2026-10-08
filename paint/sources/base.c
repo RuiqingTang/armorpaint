@@ -573,6 +573,7 @@ void base_init() {
 	camera_object_build_proj(scene_camera, -1.0);
 
 	args_run();
+	sys_notify_on_next_frame(mcp_bridge_init, NULL);
 
 	if (g_config->workspace != WORKSPACE_PAINT_3D) {
 		base_update_workspace();

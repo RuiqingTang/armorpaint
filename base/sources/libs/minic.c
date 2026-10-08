@@ -363,6 +363,7 @@ typedef struct {
 #define MINIC_MAX_GLOBAL_VARS 1024
 
 struct minic_ctx_s {
+	int             execution_limit;
 	minic_u8       *mem;
 	int             mem_used;
 	int             mem_frame; // End of the heap, the VM stack sits above it
@@ -2440,7 +2441,14 @@ static void minic_runtime_error(minic_ctx_t *ctx, int pc, const char *fmt, ...) 
 
 // Run a function to completion. Script calls stay in this loop, natives that call back
 // into the context start a nested run above the current stack top.
+static int minic_execution_limit = 0;
+
+void minic_set_execution_limit(int instructions) {
+	minic_execution_limit = instructions > 0 ? instructions : 0;
+}
+
 static bool minic_run(minic_ctx_t *ctx, minic_func_t *fn, minic_val_t *args, int argc, minic_val_t *ret) {
+	int remaining = ctx->execution_limit;
 	minic_val_t *base       = ctx->sp;
 	int          base_depth = ctx->depth;
 	minic_val_t *globals    = ctx->globals;
@@ -2501,6 +2509,9 @@ static bool minic_run(minic_ctx_t *ctx, minic_func_t *fn, minic_val_t *args, int
 	}
 
 	for (;;) {
+		if (ctx->execution_limit > 0 && --remaining <= 0) {
+			MINIC_FAIL("script instruction limit exceeded");
+		}
 		switch ((minic_op_t)code[pc++]) {
 		case OP_HALT:
 			goto fail;
@@ -2825,6 +2836,7 @@ minic_ctx_t *minic_eval_named(const char *src, const char *filename) {
 	minic_register_builtins();
 
 	minic_ctx_t *ctx = (minic_ctx_t *)calloc(1, sizeof(minic_ctx_t));
+	ctx->execution_limit = minic_execution_limit;
 	ctx->filename    = filename;
 	ctx->mem         = (minic_u8 *)calloc(1, MINIC_MEM_SIZE);
 	ctx->mem_frame   = MINIC_MEM_SIZE - MINIC_STACK_SIZE;
@@ -3074,7 +3086,7 @@ void minic_register_native(const char *name, minic_native_fn_t fn) {
 	}
 }
 
-#define MINIC_EXT_HASH_SIZE 2048
+#define MINIC_EXT_HASH_SIZE 4096
 
 static int16_t minic_ext_hash[MINIC_EXT_HASH_SIZE];
 static int     minic_ext_hash_count = -1;

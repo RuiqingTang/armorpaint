@@ -113,6 +113,9 @@ void args_parse() {
 			else if (string_equals(current_arg, "--background")) {
 				args_background = true;
 			}
+			else if (string_equals(current_arg, "--mcp-socket") && (i + 1) < iron_get_arg_count()) {
+				++i; // Consumed by mcp_bridge_start, not a project/asset argument.
+			}
 			else if (string_equals(current_arg, "--player")) {
 				args_player = true;
 			}
@@ -169,6 +172,8 @@ void args_parse() {
 				printf("  --restore                         Restore the original project during a console agent run\n");
 				printf("  --play <seconds> [path]           Play the project during a console agent run, with an optional test script\n");
 				printf("  --api                             Print the scripting API reference\n");
+				printf("  --mcp                             Start the local MCP bridge (macOS/Linux)\n");
+				printf("  --mcp-socket <path>               Start MCP on a custom Unix socket path\n");
 				printf("                                    Contents of the opened project are included\n");
 				printf("  --player                          Run in player mode\n");
 				printf("  --help                            Show this help message\n");

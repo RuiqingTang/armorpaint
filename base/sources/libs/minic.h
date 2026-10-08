@@ -8,14 +8,14 @@
 #define MINIC_MAX_PARAMS        20
 #define MINIC_MAX_ARGS          64  // Call argc, including variadic natives such as sprintf
 #define MINIC_MAX_VARS          256 // locals per scope
-#define MINIC_MAX_EXTFUNS       1024
+#define MINIC_MAX_EXTFUNS       2048
 #define MINIC_MAX_SIG           64
-#define MINIC_MAX_ENUM_CONSTS   512
+#define MINIC_MAX_ENUM_CONSTS   1024
 #define MINIC_MAX_INT_TYPEDEFS  128
-#define MINIC_MAX_STRUCT_FIELDS 32
-#define MINIC_MAX_STRUCTS       64
+#define MINIC_MAX_STRUCT_FIELDS 64
+#define MINIC_MAX_STRUCTS       128
 #define MINIC_MAX_GLOBALS       64
-#define MINIC_MAX_NAME          48
+#define MINIC_MAX_NAME          96
 
 typedef unsigned char minic_u8;
 
@@ -78,6 +78,9 @@ minic_ctx_t *minic_eval(const char *src);
 minic_ctx_t *minic_eval_named(const char *src, const char *filename);
 void         minic_ctx_free(minic_ctx_t *ctx);
 float        minic_ctx_result(minic_ctx_t *ctx);
+// Limit VM instructions per call for subsequently created contexts. Zero means
+// unlimited. Native functions are not interrupted by this limit.
+void         minic_set_execution_limit(int instructions);
 minic_val_t  minic_ctx_return_val(minic_ctx_t *ctx);
 minic_val_t  minic_ctx_call_fn(minic_ctx_t *ctx, void *fn_ptr, minic_val_t *args, int argc);
 // Call a minic function from native C. fn_ptr is a minic func passed from a script,

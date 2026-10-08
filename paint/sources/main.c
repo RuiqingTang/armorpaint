@@ -219,6 +219,8 @@
 #include "keymap.c"
 #include "logic_node.c"
 #include "minic_impl.c"
+#include "mcp_operations.c"
+#include "mcp_bridge.c"
 #include "node_shader.c"
 #include "nodes_brush.c"
 #include "nodes_material.c"

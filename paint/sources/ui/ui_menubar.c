@@ -710,6 +710,12 @@ void ui_menubar_draw_category_items() {
 		}
 	}
 	else if (ui_menubar_category == MENUBAR_CATEGORY_HELP) {
+#if defined(IRON_MACOS) || defined(IRON_LINUX)
+		if (ui_menu_button(mcp_bridge_enabled() ? "Stop MCP Server" : "Start MCP Server", "", ICON_NONE)) {
+			if (mcp_bridge_enabled()) mcp_bridge_stop();
+			else mcp_bridge_start();
+		}
+#endif
 		if (ui_menu_button(tr("Manual"), "", ICON_HELP)) {
 			iron_load_url("https://armorpaint.org/manual");
 		}
