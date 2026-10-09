@@ -21,6 +21,7 @@ void mcp_task_end(char *error);
 void mcp_create_fill_layer(i32 uv_type, i32 position);
 void mcp_export_textures(char *path, export_preset_t *preset, i32 bits, i32 format);
 bool mcp_can_delete_layer(slot_layer_t *layer);
+bool mcp_can_merge_layer(slot_layer_t *layer);
 
 f32                   ui_MENUBAR_H(ui_t *ui);
 f32                   ui_nodes_INPUT_Y(ui_node_canvas_t *canvas, ui_node_t *node, i32 pos);

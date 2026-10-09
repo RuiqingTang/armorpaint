@@ -24,11 +24,24 @@ def test_stdio_mcp_discovery_without_running_application(tmp_path):
         assert {"execute_code", "call_function", "get_application_state", "get_screenshot", "paint_stroke", "bake_lightmap", "get_node_graph"} <= names
         for tool in tools.tools:
             assert tool.inputSchema["type"] == "object"
+            assert tool.annotations is not None
+        assert len(names) == 26
         resources = await client.list_resources()
         assert len(resources.resources) == 4
         result = await client.call_tool("get_application_state", {})
         assert result.isError
         assert "Start MCP Server" in result.content[0].text
+        for tool, arguments in [
+            ("execute_code", {"code": "void main() {}", "timeout": 0}),
+            ("project_operation", {"action": "invalid"}),
+            ("material_node_operation", {"action": "invalid"}),
+            ("paint_stroke", {"points": [[-1, 0.5]]}),
+            ("camera_operation", {"action": "projection", "values": [2]}),
+            ("undo_redo", {"action": "undo", "steps": 33}),
+        ]:
+            invalid = await client.call_tool(tool, arguments)
+            assert invalid.isError
+            assert "Start MCP Server" not in invalid.content[0].text
     asyncio.run(with_client(tmp_path / "missing.sock", check))
 
 
@@ -111,4 +124,28 @@ def test_live_workflow_through_mcp(tmp_path):
         stopped = await call("player_operation", action="stop")
         assert not stopped["state"]["player_running"]
         await call("get_application_state")
+    asyncio.run(with_client(os.environ["ARMORPAINT_MCP_TEST_SOCKET"], check))
+
+
+@pytest.mark.skipif(not os.environ.get("ARMORPAINT_MCP_TEST_SOCKET"), reason="requires an explicitly opted-in disposable ArmorPaint instance")
+def test_live_queries_during_mutation_through_mcp():
+    async def check(client):
+        pending = asyncio.create_task(client.call_tool(
+            "execute_code", {"code": "void main() {}", "wait_frames": 120, "retain_context": False}
+        ))
+        try:
+            for _ in range(30):
+                state = await client.call_tool("get_application_state", {})
+                assert not state.isError, state.content
+                if state.structuredContent["busy"]:
+                    break
+                assert not pending.done(), "Read request waited for mutation completion"
+                await asyncio.sleep(0.01)
+            else:
+                pytest.fail("Mutation never entered busy state")
+            graph = await client.call_tool("get_node_graph", {})
+            assert not graph.isError and graph.structuredContent["nodes"]
+        finally:
+            result = await pending
+        assert not result.isError, result.content
     asyncio.run(with_client(os.environ["ARMORPAINT_MCP_TEST_SOCKET"], check))

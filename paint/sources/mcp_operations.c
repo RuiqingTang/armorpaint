@@ -19,6 +19,10 @@ bool mcp_can_delete_layer(slot_layer_t *layer) {
 	return tab_layers_can_delete(layer);
 }
 
+bool mcp_can_merge_layer(slot_layer_t *layer) {
+	return tab_layers_can_merge_down(layer);
+}
+
 void mcp_export_textures(char *path, export_preset_t *preset, i32 bits, i32 format) {
 	if (path == NULL || preset == NULL) { mcp_task_end("Invalid export path or preset"); return; }
 	gpu_texture_t *current;

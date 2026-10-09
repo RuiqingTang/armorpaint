@@ -16,7 +16,9 @@
 
 #define MCP_PEERS 4
 #define MCP_MAX_REQUEST (1024 * 1024)
+#ifndef MCP_RETAINED_CONTEXTS
 #define MCP_RETAINED_CONTEXTS 256
+#endif
 
 typedef struct {
 	int fd;
@@ -47,22 +49,9 @@ static minic_ctx_t *mcp_contexts[MCP_RETAINED_CONTEXTS];
 static int mcp_context_count = 0;
 static bool mcp_native_executing = false;
 
-// The engine encoder expects already escaped strings. Escape locally so this
-// bridge can carry code, API headers, Unicode names and multiline console logs.
-static char *mcp_escape(const char *s) {
-	if (s == NULL) s = "";
-	char *out = malloc(strlen(s) * 6 + 1); int w = 0;
-	for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
-		if (*p == '"' || *p == '\\') { out[w++] = '\\'; out[w++] = *p; }
-		else if (*p < 32) { snprintf(out + w, 7, "\\u%04x", *p); w += 6; }
-		else out[w++] = *p;
-	}
-	out[w] = 0; return out;
-}
-
+// Use the escaping encoder for raw names, scripts and multiline console logs.
 static void mcp_encode_string(char *key, char *value) {
-	char *escaped = mcp_escape(value);
-	json_encode_string(key, escaped); free(escaped);
+	json_encode_string_escaped(key, value);
 }
 #define json_encode_string mcp_encode_string
 
@@ -298,9 +287,26 @@ static void mcp_dispatch(int index) {
 	jsmntok_t tokens[128]; jsmn_parser parser; jsmn_init(&parser);
 	int n = jsmn_parse(&parser, p->input, p->input_len, tokens, 128);
 	if (n < 1 || tokens[0].type != JSMN_OBJECT) { mcp_response(p, false, "Invalid JSON object", NULL); return; }
+	for (int i = 1; i < n; ++i) {
+		if (tokens[i].start >= tokens[0].end) { mcp_response(p, false, "Invalid request: expected one JSON object", NULL); return; }
+	}
 	p->id = mcp_json_string(p->input, mcp_field(p->input, tokens, n, "id"));
 	char *method = mcp_json_string(p->input, mcp_field(p->input, tokens, n, "method"));
 	if (method == NULL || p->id == NULL) { free(method); mcp_response(p, false, "id and method must be strings", NULL); return; }
+	jsmntok_t *frames_token = mcp_field(p->input, tokens, n, "wait_frames");
+	jsmntok_t *timeout_token = mcp_field(p->input, tokens, n, "timeout");
+	jsmntok_t *retain = mcp_field(p->input, tokens, n, "retain_context");
+	double frames = mcp_number(p->input, frames_token, frames_token == NULL ? 3 : NAN);
+	double timeout = mcp_number(p->input, timeout_token, timeout_token == NULL ? 60 : NAN);
+	if (!isfinite(frames) || frames < 1 || frames > 120 || frames != floor(frames) ||
+	    !isfinite(timeout) || timeout < 1 || timeout > 300) {
+		free(method); mcp_response(p, false, "Invalid wait_frames or timeout", NULL); return;
+	}
+	bool retain_true = retain != NULL && retain->type == JSMN_PRIMITIVE && retain->end - retain->start == 4 && strncmp(p->input + retain->start, "true", 4) == 0;
+	bool retain_false = retain != NULL && retain->type == JSMN_PRIMITIVE && retain->end - retain->start == 5 && strncmp(p->input + retain->start, "false", 5) == 0;
+	if (retain != NULL && !retain_true && !retain_false) {
+		free(method); mcp_response(p, false, "Invalid retain_context: expected a boolean", NULL); return;
+	}
 	if (string_equals(method, "ping")) mcp_response(p, true, NULL, "ArmorPaint MCP bridge v1");
 	else if (string_equals(method, "state")) mcp_response(p, true, NULL, mcp_state());
 	else if (string_equals(method, "settings")) mcp_response(p, true, NULL, mcp_settings());
@@ -330,10 +336,8 @@ static void mcp_dispatch(int index) {
 		mcp_response(p, false, "Application is busy running another script, agent or player", NULL);
 	else if (mcp_timed_out) mcp_response(p, false, "A previous asynchronous operation timed out. Restart ArmorPaint before sending more mutations.", NULL);
 	else {
-		p->frames = (int)mcp_number(p->input, mcp_field(p->input, tokens, n, "wait_frames"), 3);
-		if (p->frames < 1 || p->frames > 120) p->frames = 3;
-		p->timeout = mcp_number(p->input, mcp_field(p->input, tokens, n, "timeout"), 60);
-		if (p->timeout < 1 || p->timeout > 300) p->timeout = 60;
+		p->frames = (int)frames;
+		p->timeout = timeout;
 		p->started = sys_time();
 		p->wait_for_scripts = !string_equals(method, "screenshot");
 		mcp_pending_tasks = 0; mcp_task_error = NULL;
@@ -346,10 +350,9 @@ static void mcp_dispatch(int index) {
 		}
 		else {
 			char *code = mcp_json_string(p->input, mcp_field(p->input, tokens, n, "code"));
-			jsmntok_t *retain = mcp_field(p->input, tokens, n, "retain_context");
-			p->retain_context = retain == NULL || strncmp(p->input + retain->start, "false", 5) != 0;
+			p->retain_context = !retain_false;
 			if (code == NULL || code[0] == 0) mcp_response(p, false, "Code must be a nonempty JSON string", NULL);
-			else if (p->retain_context && mcp_context_count == MCP_RETAINED_CONTEXTS) mcp_response(p, false, "Retained script context limit reached; restart ArmorPaint", NULL);
+			else if (mcp_context_count >= MCP_RETAINED_CONTEXTS) mcp_response(p, false, "Retained script context limit reached; restart ArmorPaint", NULL);
 			else {
 				mcp_active_peer = index; p->waiting = true; console_capture = ""; minic_error_count = 0;
 				p->check_errors = true;

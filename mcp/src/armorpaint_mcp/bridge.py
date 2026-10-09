@@ -6,6 +6,7 @@ import stat
 import sys
 import threading
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 
 MAX_REQUEST = 1024 * 1024
@@ -30,12 +31,17 @@ def default_socket_path():
 
 class Bridge:
     def __init__(self, path=None):
-        self.path = Path(path).expanduser().resolve() if path else default_socket_path()
+        self.path = Path(path).expanduser().absolute() if path else default_socket_path()
         self.lock = threading.Lock()
 
     def request(self, method, *, timeout=60, **params):
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 1 <= timeout <= 300:
+            raise BridgeError("Bridge timeout must be a finite number between 1 and 300 seconds")
         request_id = uuid.uuid4().hex
-        request = json.dumps({"id": request_id, "method": method, "timeout": timeout, **params}, ensure_ascii=True, allow_nan=False).encode() + b"\n"
+        try:
+            request = json.dumps({**params, "id": request_id, "method": method, "timeout": timeout}, ensure_ascii=True, allow_nan=False).encode() + b"\n"
+        except (ValueError, TypeError) as exc:
+            raise BridgeError(f"Invalid bridge request JSON: {exc}") from exc
         if len(request) >= MAX_REQUEST:
             raise BridgeError("Request exceeds the bridge's 1 MiB limit")
         try:
@@ -44,7 +50,8 @@ class Bridge:
             raise BridgeError(f"ArmorPaint MCP is not running at {self.path}. In the rebuilt app, select Help → Start MCP Server or launch with --mcp.") from exc
         if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
             raise BridgeError("Bridge path must be a socket owned by this user with mode 0600")
-        with self.lock:
+        read_only = method in ("ping", "state", "settings", "api", "reference", "nodes", "material_graph", "brush_graph")
+        with nullcontext() if read_only else self.lock:
             try:
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
                     conn.settimeout(timeout + 10)
@@ -64,6 +71,10 @@ class Bridge:
             result = json.loads(data.split(b"\n", 1)[0])
             if not isinstance(result, dict) or result.get("id") != request_id:
                 raise ValueError("Response ID mismatch")
+            if not isinstance(result.get("ok"), bool):
+                raise ValueError("Response ok must be a boolean")
+            if "error" in result and not isinstance(result["error"], str):
+                raise ValueError("Response error must be a string")
             payload = result.get("data")
             if isinstance(payload, str):
                 try:

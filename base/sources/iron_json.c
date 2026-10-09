@@ -4,6 +4,7 @@
 #include "iron_string.h"
 #include <jsmn.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,6 +18,7 @@ static char      *source;
 static jsmntok_t *tokens;
 static int        num_tokens;
 static uint32_t   ti; // token index
+static bool       decode_string_escapes = false;
 static uint8_t   *decoded;
 static uint32_t   wi; // write index
 static uint32_t   bottom;
@@ -64,7 +66,63 @@ static void store_ptr_abs(void *ptr) {
 	wi += PTR_SIZE;
 }
 
+static int json_hex4(char *s) {
+	int result = 0;
+	for (int i = 0; i < 4; ++i) {
+		int digit = s[i] >= '0' && s[i] <= '9' ? s[i] - '0' :
+		            s[i] >= 'a' && s[i] <= 'f' ? s[i] - 'a' + 10 :
+		            s[i] >= 'A' && s[i] <= 'F' ? s[i] - 'A' + 10 : -1;
+		if (digit < 0) return -1;
+		result = result * 16 + digit;
+	}
+	return result;
+}
+
+static uint32_t json_decode_string(char *str, uint32_t len, bool write) {
+	uint32_t count = 0;
+	for (uint32_t i = 0; i < len; ++i) {
+		unsigned char bytes[4] = {(unsigned char)str[i]};
+		int length = 1;
+		if (str[i] == '\\' && i + 1 < len) {
+			char escape = str[++i];
+			if (escape == 'n') bytes[0] = '\n';
+			else if (escape == 'r') bytes[0] = '\r';
+			else if (escape == 't') bytes[0] = '\t';
+			else if (escape == 'b') bytes[0] = '\b';
+			else if (escape == 'f') bytes[0] = '\f';
+			else if (escape == 'u' && i + 4 < len) {
+				int cp = json_hex4(str + i + 1); i += 4;
+				if (cp >= 0xd800 && cp <= 0xdbff && i + 6 < len && str[i + 1] == '\\' && str[i + 2] == 'u') {
+					int low = json_hex4(str + i + 3);
+					if (low >= 0xdc00 && low <= 0xdfff) {
+						cp = 0x10000 + ((cp - 0xd800) << 10) + low - 0xdc00; i += 6;
+					}
+				}
+				if (cp < 0 || (cp >= 0xd800 && cp <= 0xdfff)) cp = 0xfffd;
+				if (cp < 0x80) bytes[0] = cp;
+				else if (cp < 0x800) {
+					length = 2; bytes[0] = 0xc0 | (cp >> 6); bytes[1] = 0x80 | (cp & 63);
+				}
+				else if (cp < 0x10000) {
+					length = 3; bytes[0] = 0xe0 | (cp >> 12); bytes[1] = 0x80 | ((cp >> 6) & 63); bytes[2] = 0x80 | (cp & 63);
+				}
+				else {
+					length = 4; bytes[0] = 0xf0 | (cp >> 18); bytes[1] = 0x80 | ((cp >> 12) & 63);
+					bytes[2] = 0x80 | ((cp >> 6) & 63); bytes[3] = 0x80 | (cp & 63);
+				}
+			}
+			else bytes[0] = escape;
+		}
+		for (int j = 0; j < length; ++j) {
+			if (write) store_u8(bytes[j]);
+			++count;
+		}
+	}
+	return count;
+}
+
 static uint32_t json_string_len(char *str, uint32_t len) {
+	if (decode_string_escapes) return json_decode_string(str, len, false);
 	uint32_t out = 0;
 	for (uint32_t i = 0; i < len; ++i) {
 		// Escaped \" collapses to one byte
@@ -77,6 +135,11 @@ static uint32_t json_string_len(char *str, uint32_t len) {
 }
 
 static void store_string_bytes(char *str, uint32_t len) {
+	if (decode_string_escapes) {
+		json_decode_string(str, len, true);
+		store_u8('\0');
+		return;
+	}
 	for (uint32_t i = 0; i < len; ++i) {
 		if (str[i] == '\\' && i + 1 < len && str[i + 1] == '"') {
 			store_u8('"');
@@ -294,6 +357,14 @@ void *json_parse(char *s) {
 	return decoded;
 }
 
+void *json_parse_escaped(char *s) {
+	bool previous = decode_string_escapes;
+	decode_string_escapes = true;
+	void *result = json_parse(s);
+	decode_string_escapes = previous;
+	return result;
+}
+
 static void token_write_to_map(any_map_t *m) {
 	jsmntok_t t = get_token();
 
@@ -376,6 +447,43 @@ void json_encode_string_value(char *v) {
 void json_encode_string(char *k, char *v) {
 	json_encode_key(k);
 	json_encode_string_value(v);
+}
+
+static void json_encode_escaped_value(char *value) {
+	enc("\"");
+	for (const unsigned char *p = (const unsigned char *)(value == NULL ? "" : value); *p; ++p) {
+		char text[7] = {0};
+		if (*p == '"' || *p == '\\') {
+			text[0] = '\\'; text[1] = *p;
+		}
+		else if (*p < 32) {
+			snprintf(text, sizeof(text), "\\u%04x", *p);
+		}
+		else {
+			text[0] = *p;
+		}
+		enc(text);
+	}
+	enc("\"");
+}
+
+// The legacy encoder accepts pre-escaped values; these accept raw strings.
+void json_encode_string_escaped(char *k, char *v) {
+	json_encode_key(k);
+	json_encode_escaped_value(v);
+}
+
+void json_encode_string_array_escaped(char *k, string_array_t *a) {
+	if (a == NULL) {
+		json_encode_null(k);
+		return;
+	}
+	json_encode_begin_array(k);
+	for (uint32_t i = 0; i < a->length; ++i) {
+		if (i > 0) enc(",");
+		json_encode_escaped_value(a->buffer[i]);
+	}
+	json_encode_end_array();
 }
 
 void json_encode_string_array(char *k, string_array_t *a) {

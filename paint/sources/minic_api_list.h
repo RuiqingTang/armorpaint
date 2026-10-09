@@ -12,6 +12,7 @@ X1(mcp_task_end, "v(p:char error)", v, p)
 X2(mcp_create_fill_layer, "v(i uv_type,i position)", v, i, i)
 X4(mcp_export_textures, "v(p:char path,p:export_preset_t preset,i bits,i format)", v, p, p, i, i)
 X1(mcp_can_delete_layer, "b(p:slot_layer_t layer)", b, p)
+X1(mcp_can_merge_layer, "b(p:slot_layer_t layer)", b, p)
 
 X0(iron_random_get, "i()", i)
 X1(iron_random_get_max, "i(i max)", i, i)

@@ -34,7 +34,9 @@ DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True)
 def cstr(value: str) -> str:
     if "\0" in value:
         raise ValueError("Strings cannot contain NUL")
-    return json.dumps(value, ensure_ascii=False)
+    # minic handles these C escapes but not JSON's \b, \f or \uXXXX.
+    escapes = {'"': '\\"', "\\": "\\\\", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+    return '"' + "".join(escapes.get(c, c) for c in value) + '"'
 
 
 def number(value):
@@ -59,6 +61,8 @@ def path_arg(path, *, exists=False, directory=False):
         raise ValueError(f"Path does not exist: {p}")
     if directory and not p.is_dir():
         raise ValueError(f"Expected an existing directory: {p}")
+    if not directory and p.exists() and not p.is_file():
+        raise ValueError(f"Expected a file path: {p}")
     if not exists and not p.parent.is_dir():
         raise ValueError(f"Parent directory does not exist: {p.parent}")
     return p
@@ -169,7 +173,7 @@ async def call_function(name: str, arguments: list, timeout: float = 60, wait_fr
         raise ValueError(f"{name} is not registered in the running build")
     params = declaration[1]
     if "..." not in params:
-        count = 0 if params.strip() == "void" else len(params.split(","))
+        count = 0 if params.strip() in ("", "void") else len(params.split(","))
         if len(arguments) != count:
             raise ValueError(f"Expected {count} arguments for {declaration[0]}")
     literals = []
@@ -214,6 +218,8 @@ async def set_settings(scope: Literal["context_t", "config_t"], values: dict) ->
             raise ValueError(f"{name} requires a boolean")
         if kind == "i" and (isinstance(value, bool) or not isinstance(value, int) or not -(2**31) <= value < 2**31):
             raise ValueError(f"{name} requires a signed 32-bit integer")
+        if kind == "f" and isinstance(value, (int, float)) and abs(value) > 3.4028234663852886e38:
+            raise ValueError(f"{name} requires a finite 32-bit float")
         body.append(f"if (!mcp_set_setting({cstr(scope)}, {cstr(name)}, {number(value)})) mcp_task_end(\"Setting failed\");")
     return await run_body("\n".join(body))
 
@@ -230,6 +236,13 @@ async def project_operation(action: Literal["new", "open", "save"], path: str = 
         p = path_arg(path, exists=action == "open")
         if p.suffix.lower() != ".arm":
             raise ValueError("Project path must end in .arm")
+        if action == "open":
+            with p.open("rb") as file:
+                header = file.read(11)
+            if not header:
+                raise ValueError("Cannot open an empty project file")
+            if len(header) < 11 or header[0] != 0xdf:
+                raise ValueError("Invalid or truncated .arm project header")
     else:
         if action == "open":
             raise ValueError("Opening a project requires a path")
@@ -292,6 +305,10 @@ async def create_layer(name: str = "", kind: Literal["paint", "fill", "group", "
     """
     if kind == "mask":
         prefix = await layer_prefix(parent_id)
+        state = await rpc("state")
+        if next((l for l in state["layers"] if l["id"] == parent_id), {}).get("type") == "mask":
+            raise ValueError("A mask parent must be a layer or group, not another mask")
+        prefix += 'if (slot_layer_is_mask(l)) { mcp_task_end("A mask cannot parent another mask"); return; }\n'
         body = prefix + "slot_layer_t *created = layers_new_mask(true, l, -1); if (created == NULL) { mcp_task_end(\"Layer limit reached\"); return; } history_new_black_mask();"
     elif kind in ("fill", "decal"):
         body = f"mcp_create_fill_layer({'UV_TYPE_PROJECT' if kind == 'decal' else 'UV_TYPE_UVMAP'}, -1);"
@@ -321,14 +338,16 @@ async def layer_operation(layer_id: int, action: Literal["select", "delete", "du
         "delete": "if (!mcp_can_delete_layer(l)) { mcp_task_end(\"Cannot delete the last paint layer\"); return; } tab_layers_delete_layer(l);",
         "duplicate": "history_duplicate_layer(); layers_duplicate_layer(l);",
         "clear": "history_clear_layer(); slot_layer_clear(l, 0x00000000, NULL, 1.0, 0.0, 0.0);",
-        "merge_down": "history_merge_layers(); layers_merge_down();",
+        "merge_down": 'if (!mcp_can_merge_layer(l)) { mcp_task_end("Layer cannot merge down"); return; } history_merge_layers(); layers_merge_down(); if (script_get_context()->layer->fill_material != NULL) slot_layer_to_paint_layer(script_get_context()->layer);',
         "to_fill": "history_to_fill_layer(); slot_layer_to_fill_layer(l);",
         "to_paint": "history_to_paint_layer(); slot_layer_to_paint_layer(l);",
         "invert_mask": "history_invert_mask(); slot_layer_invert_mask(l);",
         "apply_mask": "history_apply_mask(); slot_layer_apply_mask(l);",
     }
     state = await rpc("state")
-    current = next(l for l in state["layers"] if l["id"] == layer_id)
+    current = next((l for l in state["layers"] if l["id"] == layer_id), None)
+    if current is None:
+        raise ValueError("Layer no longer exists; query state for current IDs")
     if action in ("invert_mask", "apply_mask") and current["type"] != "mask":
         raise ValueError("This action requires a mask")
     if action in ("clear", "to_fill", "to_paint", "merge_down") and current["type"] == "group":
@@ -391,14 +410,26 @@ async def material_node_operation(action: Literal["create", "remove", "connect",
         if node_id not in nodes:
             raise ValueError("Node not found")
         node = nodes[node_id]
+        if action == "remove" and node["type"] == "OUTPUT_MATERIAL_PBR":
+            raise ValueError("Cannot remove PBR output")
         if action in ("button", "text") and socket >= len(node["buttons"]):
             raise ValueError("Button index out of range")
+        if action == "button":
+            button = node["buttons"][socket]
+            if button["type"] not in ("VALUE", "BOOL", "ENUM") or not button.get("default_value"):
+                raise ValueError("Button does not hold a numeric value")
+        if action == "text":
+            button = node["buttons"][socket]
+            if button["type"] != "STRING" and node["type"] != "SHADER_GPU":
+                raise ValueError("Button does not hold editable text")
         if action in ("float", "color", "vector", "disconnect", "connect"):
             sockets = node["inputs"] if is_input or action in ("connect", "disconnect") else node["outputs"]
             if socket >= len(sockets):
                 raise ValueError("Socket index out of range")
-            if action in ("float", "color", "vector") and len(sockets[socket].get("default_value", [])) < {"float": 1, "color": 3, "vector": 3}[action]:
-                raise ValueError("Socket does not hold the requested value type")
+            if action in ("float", "color", "vector"):
+                target = sockets[socket]
+                if target["type"] != {"float": "VALUE", "color": "RGBA", "vector": "VECTOR"}[action] or len(target.get("default_value", [])) < {"float": 1, "color": 3, "vector": 3}[action]:
+                    raise ValueError("Socket does not hold the requested value type")
         if action == "connect" and (from_node_id not in nodes or from_socket >= len(nodes[from_node_id]["outputs"])):
             raise ValueError("Source node/socket not found")
     if action == "create":
@@ -529,7 +560,10 @@ async def fill_layer(layer_id: int = -1) -> dict[str, Any]:
     prefix = await layer_prefix(layer_id) if layer_id >= 0 else ""
     state = await rpc("state")
     active_id = layer_id if layer_id >= 0 else state["selected_layer_id"]
-    if next(l for l in state["layers"] if l["id"] == active_id)["type"] == "group":
+    active = next((l for l in state["layers"] if l["id"] == active_id), None)
+    if active is None:
+        raise ValueError("No selected layer; query state for current IDs")
+    if active["type"] == "group":
         raise ValueError("Cannot fill a layer group")
     return await run_body(prefix + "script_fill_layer();", wait_frames=8)
 
@@ -561,6 +595,8 @@ async def camera_operation(action: Literal["orbit", "zoom", "view", "reset", "pr
     arity = {"orbit": 2, "zoom": 1, "view": 6, "reset": 0, "projection": 1}[action]
     if len(values) != arity:
         raise ValueError(f"{action} needs {arity} values")
+    if action == "projection" and (isinstance(values[0], bool) or values[0] not in (0, 1)):
+        raise ValueError("projection requires CAMERA_TYPE_PERSPECTIVE (0) or CAMERA_TYPE_ORTHOGRAPHIC (1)")
     func = {"orbit": "viewport_orbit", "zoom": "viewport_zoom", "view": "viewport_set_view", "reset": "viewport_reset", "projection": "viewport_update_camera_type"}[action]
     return await run_body(f"{func}({', '.join(number(v) for v in values)});")
 

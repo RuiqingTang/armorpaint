@@ -7,6 +7,8 @@ armorpaint
 
 This checkout includes a local MCP integration for AI control of the running application. See [setup, tools and validation](mcp/README.md).
 
+MCP regression testing includes socket protocol checks, tool validation, live workflows and isolated application restart tests. See the [test report and reproduction commands](mcp/TESTING.md) for verified fixes and remaining coverage gaps. Native integration tests replace the test project's contents: always use a disposable instance.
+
 *Note 1: This repository is aimed at developers and may not be stable. Distributed binaries are [paid](https://armorpaint.org/download) to help with the project funding. All of the development is happening here in order to make it accessible to everyone. Thank you for support!*
 
 *Note 2: If you are compiling git version of ArmorPaint, then you need to have a compiler ([Visual Studio with clang tools](https://visualstudio.microsoft.com/downloads/) - Windows, [clang + dependencies](https://github.com/armory3d/armorpaint/blob/main/base/docs/linux_deps.md) - Linux, [Xcode](https://developer.apple.com/xcode/resources/) - macOS / iOS, [Android Studio](https://developer.android.com/studio) - Android) and [git](https://git-scm.com/downloads) installed.*

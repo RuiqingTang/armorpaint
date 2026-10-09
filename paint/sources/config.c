@@ -34,7 +34,7 @@ void config_load() {
 		char *config_string = sys_buffer_to_string(blob);
 		if (starts_with(config_string, "{\"version\":")) { // Ensure valid config
 			config_loaded = true;
-			g_config      = json_parse(config_string);
+			g_config      = json_parse_escaped(config_string);
 		}
 		free(config_string);
 	}
@@ -57,9 +57,9 @@ void config_save() {
 	}
 
 	json_encode_begin();
-	json_encode_string("version", g_config->version);
-	json_encode_string("sha", g_config->sha);
-	json_encode_string("locale", g_config->locale);
+	json_encode_string_escaped("version", g_config->version);
+	json_encode_string_escaped("sha", g_config->sha);
+	json_encode_string_escaped("locale", g_config->locale);
 	json_encode_i32("window_mode", g_config->window_mode);
 	json_encode_i32("window_w", g_config->window_w);
 	json_encode_i32("window_h", g_config->window_h);
@@ -78,13 +78,13 @@ void config_save() {
 	json_encode_f32("rp_grain", g_config->rp_grain);
 	json_encode_f32("rp_contrast", g_config->rp_contrast);
 	json_encode_f32("rp_gamma", g_config->rp_gamma);
-	json_encode_string("lut_path", g_config->lut_path);
+	json_encode_string_escaped("lut_path", g_config->lut_path);
 	json_encode_bool("texture_filter", g_config->texture_filter);
-	json_encode_string_array("recent_projects", g_config->recent_projects);
-	json_encode_string_array("bookmarks", g_config->bookmarks);
-	json_encode_string_array("plugins", g_config->plugins);
-	json_encode_string("keymap", g_config->keymap);
-	json_encode_string("theme", g_config->theme);
+	json_encode_string_array_escaped("recent_projects", g_config->recent_projects);
+	json_encode_string_array_escaped("bookmarks", g_config->bookmarks);
+	json_encode_string_array_escaped("plugins", g_config->plugins);
+	json_encode_string_escaped("keymap", g_config->keymap);
+	json_encode_string_escaped("theme", g_config->theme);
 	json_encode_i32("undo_steps", g_config->undo_steps);
 	json_encode_f32("camera_fov", g_config->camera_fov);
 	json_encode_f32("camera_pan_speed", g_config->camera_pan_speed);
@@ -110,7 +110,7 @@ void config_save() {
 	}
 	json_encode_i32("camera_pivot", g_config->camera_pivot);
 	json_encode_i32("camera_controls", g_config->camera_controls);
-	json_encode_string("server", g_config->server);
+	json_encode_string_escaped("server", g_config->server);
 	json_encode_i32("viewport_mode", g_config->viewport_mode);
 	json_encode_i32("pathtrace_mode", g_config->pathtrace_mode);
 	json_encode_i32("pathtrace_frames", g_config->pathtrace_frames);
@@ -127,7 +127,7 @@ void config_save() {
 	json_encode_bool("brush_angle_reject", g_config->brush_angle_reject);
 	json_encode_f32("brush_alpha_discard", g_config->brush_alpha_discard);
 	json_encode_i32("dilate_radius", g_config->dilate_radius);
-	json_encode_string("blender", g_config->blender);
+	json_encode_string_escaped("blender", g_config->blender);
 	json_encode_bool("grid_snap", g_config->grid_snap);
 	json_encode_bool("experimental", g_config->experimental);
 	json_encode_i32("neural_res", g_config->neural_res);

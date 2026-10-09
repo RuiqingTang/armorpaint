@@ -654,6 +654,11 @@ void import_arm_run_project(char *path) {
 		console_error(string("Could not open file %s.", path));
 		return;
 	}
+	if (b->length < 11 || b->buffer[0] != 0xdf) {
+		console_error("Invalid or truncated .arm project header");
+		data_delete_blob(path);
+		return;
+	}
 	project_t *project;
 	bool       import_as_mesh = false;
 #ifdef IRON_WINDOWS
@@ -731,7 +736,7 @@ void import_arm_run_project(char *path) {
 #endif
 	string_array_t *recent = g_config->recent_projects;
 	string_array_remove(recent, recent_path);
-	array_insert(recent, 0, recent_path);
+	array_insert(recent, 0, string_copy(recent_path));
 	config_save();
 
 	project->_                           = g_project->_; // Carry over runtime arrays set up by project_new
@@ -1283,6 +1288,6 @@ void import_arm_run_swatches(char *path, bool replace_existing) {
 }
 
 bool import_arm_has_version(buffer_t *b) {
-	bool has_version = b->buffer[10] == 118; // 'v';
+	bool has_version = b != NULL && b->length > 10 && b->buffer[10] == 118; // 'v';
 	return has_version;
 }

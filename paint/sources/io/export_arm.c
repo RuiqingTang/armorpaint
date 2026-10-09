@@ -448,7 +448,7 @@ void export_arm_run_project(char *path) {
 #endif
 	string_array_t *recent = g_config->recent_projects;
 	string_array_remove(recent, recent_path);
-	array_insert(recent, 0, recent_path);
+	array_insert(recent, 0, string_copy(recent_path));
 	config_save();
 
 	console_info(tr("Project saved"));

@@ -861,6 +861,9 @@ void layers_apply_masks(slot_layer_t *l) {
 
 void layers_merge_down() {
 	slot_layer_t *l1 = g_context->layer;
+	if (l1 == NULL || !tab_layers_can_merge_down(l1)) {
+		return;
+	}
 
 	if (slot_layer_is_group(l1)) {
 		l1 = layers_merge_group(l1);
